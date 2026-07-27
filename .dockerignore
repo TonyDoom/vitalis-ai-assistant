@@ -1,0 +1,9 @@
+.env
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+.venv
+indice_vectorial_vitalis.zip
+clinica_vitalis_app.zip

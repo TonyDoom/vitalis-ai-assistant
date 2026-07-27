@@ -1,0 +1,11 @@
+especialidad,sede,dias_atencion,horario
+Medicina General,Toluca Centro,Lunes a Sabado,08:00-19:00
+Medicina General,Metepec,Lunes a Sabado,08:00-19:00
+Medicina General,San Mateo Atenco,Lunes a Sabado,08:00-15:00
+Pediatria,Toluca Centro,Lunes a Viernes,09:00-17:00
+Pediatria,Metepec,Lunes a Viernes,09:00-17:00
+Ginecologia,Toluca Centro,"Martes, Jueves, Sabado",10:00-16:00
+Cardiologia,Metepec,"Lunes, Miercoles, Viernes",11:00-18:00
+Nutricion,Toluca Centro,Lunes a Sabado,09:00-14:00
+Nutricion,San Mateo Atenco,Lunes a Sabado,09:00-14:00
+Psicologia,Metepec,Lunes a Viernes,12:00-20:00

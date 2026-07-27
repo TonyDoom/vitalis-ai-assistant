@@ -1,0 +1,13 @@
+concepto,precio_mxn,categoria
+Consulta medicina general,550,Consulta
+Consulta especialidad,850,Consulta
+Consulta de seguimiento (30 dias),400,Consulta
+Estudio de laboratorio basico,250,Laboratorio
+Ultrasonido abdominal,900,Imagenologia
+Ultrasonido pelvico,950,Imagenologia
+Radiografia simple,600,Imagenologia
+Consulta pediatria,800,Consulta
+Consulta cardiologia,1100,Consulta
+Consulta nutricion,700,Consulta
+Consulta psicologia,750,Consulta
+Consulta ginecologia,900,Consulta
