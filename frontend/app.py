@@ -1,13 +1,17 @@
 import os
+import sys
+from pathlib import Path
 
-import requests
 import streamlit as st
 
 
-API_URL = os.getenv(
-    "API_URL",
-    "http://localhost:8000",
-).rstrip("/")
+# Agregar la raíz del repositorio al PATH de Python.
+# Esto permite importar backend.agent_service cuando Streamlit
+# ejecuta el archivo ubicado dentro de frontend/.
+ROOT_DIR = Path(__file__).resolve().parent.parent
+
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 
 st.set_page_config(
@@ -16,25 +20,75 @@ st.set_page_config(
     layout="centered",
 )
 
+
+def configurar_api_key() -> None:
+    """
+    Obtiene GOOGLE_API_KEY desde Streamlit Secrets.
+    Como respaldo, permite utilizar una variable de entorno local.
+    """
+    if os.getenv("GOOGLE_API_KEY"):
+        return
+
+    try:
+        api_key = st.secrets["GOOGLE_API_KEY"]
+    except Exception:
+        api_key = None
+
+    if not api_key:
+        st.error(
+            "No se encontró GOOGLE_API_KEY. "
+            "Configúrala en Streamlit Secrets."
+        )
+        st.stop()
+
+    os.environ["GOOGLE_API_KEY"] = str(api_key)
+
+
+configurar_api_key()
+
+# Se importa después de configurar la API Key.
+from backend.agent_service import VitalisAgentService  # noqa: E402
+
+
+@st.cache_resource(show_spinner="Inicializando asistente de Vitalis...")
+def cargar_agente() -> VitalisAgentService:
+    """
+    Carga una sola instancia del agente, FAISS, Gemini y los CSV.
+    Streamlit reutiliza esta instancia entre consultas.
+    """
+    return VitalisAgentService()
+
+
 st.title("🏥 Clínica Vitalis Salud")
 st.caption(
-    "Asistente para tarifas, horarios, requisitos, políticas e información "
-    "administrativa."
+    "Asistente para consultar tarifas, horarios, requisitos, "
+    "políticas e información administrativa."
 )
 
 with st.sidebar:
-    st.subheader("Información")
+    st.subheader("Acerca del asistente")
+
     st.write(
-        "Este asistente proporciona información administrativa basada "
-        "en documentos internos."
+        "La información se obtiene de documentos internos, "
+        "tarifas y horarios de Clínica Vitalis Salud."
     )
+
     st.warning(
-        "No realiza diagnósticos ni reemplaza una consulta médica."
+        "Este asistente no realiza diagnósticos, no prescribe "
+        "medicamentos y no sustituye una consulta médica."
     )
 
     if st.button("Nueva conversación", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
+
+
+try:
+    agente = cargar_agente()
+except Exception as error:
+    st.error("No fue posible inicializar el asistente.")
+    st.exception(error)
+    st.stop()
 
 
 if "messages" not in st.session_state:
@@ -43,15 +97,15 @@ if "messages" not in st.session_state:
             "role": "assistant",
             "content": (
                 "Hola. Soy el asistente virtual de Clínica Vitalis Salud. "
-                "¿En qué puedo ayudarte?"
+                "Puedo ayudarte con tarifas, horarios, requisitos y políticas."
             ),
         }
     ]
 
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+for mensaje in st.session_state.messages:
+    with st.chat_message(mensaje["role"]):
+        st.markdown(mensaje["content"])
 
 
 pregunta = st.chat_input(
@@ -73,40 +127,18 @@ if pregunta:
     with st.chat_message("assistant"):
         with st.spinner("Consultando información..."):
             try:
-                response = requests.post(
-                    f"{API_URL}/chat",
-                    json={"mensaje": pregunta},
-                    timeout=120,
-                )
+                respuesta = agente.responder(pregunta)
 
-                response.raise_for_status()
-                respuesta = response.json()["respuesta"]
-
-            except requests.exceptions.ConnectionError:
+            except Exception as error:
                 respuesta = (
-                    "No fue posible conectar con el servidor de la clínica."
+                    "No fue posible procesar la consulta. "
+                    "Intenta nuevamente o comunícate con la clínica "
+                    "al 722 555 0101."
                 )
 
-            except requests.exceptions.Timeout:
-                respuesta = (
-                    "La consulta tardó demasiado tiempo. Intenta nuevamente."
-                )
-
-            except requests.exceptions.HTTPError:
-                try:
-                    detalle = response.json().get(
-                        "detail",
-                        "Error desconocido",
-                    )
-                except Exception:
-                    detalle = "Error desconocido"
-
-                respuesta = f"El servidor reportó un error: {detalle}"
-
-            except Exception:
-                respuesta = (
-                    "Ocurrió un error inesperado al procesar la consulta."
-                )
+                # El detalle aparece en pantalla para facilitar
+                # el diagnóstico durante la entrega académica.
+                st.error(f"Detalle técnico: {error}")
 
         st.markdown(respuesta)
 
