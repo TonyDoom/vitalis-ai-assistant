@@ -5,9 +5,6 @@ from pathlib import Path
 import streamlit as st
 
 
-# Agregar la raíz del repositorio al PATH de Python.
-# Esto permite importar backend.agent_service cuando Streamlit
-# ejecuta el archivo ubicado dentro de frontend/.
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 if str(ROOT_DIR) not in sys.path:
@@ -23,8 +20,9 @@ st.set_page_config(
 
 def configurar_api_key() -> None:
     """
-    Obtiene GOOGLE_API_KEY desde Streamlit Secrets.
-    Como respaldo, permite utilizar una variable de entorno local.
+    Obtiene GOOGLE_API_KEY desde:
+    1. variable de entorno;
+    2. Streamlit Secrets.
     """
     if os.getenv("GOOGLE_API_KEY"):
         return
@@ -46,16 +44,11 @@ def configurar_api_key() -> None:
 
 configurar_api_key()
 
-# Se importa después de configurar la API Key.
 from backend.agent_service import VitalisAgentService  # noqa: E402
 
 
-@st.cache_resource(show_spinner="Inicializando asistente de Vitalis...")
+@st.cache_resource(show_spinner="Inicializando asistente...")
 def cargar_agente() -> VitalisAgentService:
-    """
-    Carga una sola instancia del agente, FAISS, Gemini y los CSV.
-    Streamlit reutiliza esta instancia entre consultas.
-    """
     return VitalisAgentService()
 
 
@@ -65,26 +58,41 @@ st.caption(
     "políticas e información administrativa."
 )
 
+
 with st.sidebar:
     st.subheader("Acerca del asistente")
 
     st.write(
-        "La información se obtiene de documentos internos, "
-        "tarifas y horarios de Clínica Vitalis Salud."
+        "La información se obtiene de tarifas, horarios y documentos "
+        "internos de Clínica Vitalis Salud."
     )
 
     st.warning(
-        "Este asistente no realiza diagnósticos, no prescribe "
-        "medicamentos y no sustituye una consulta médica."
+        "Este asistente no realiza diagnósticos, no prescribe medicamentos "
+        "y no sustituye una consulta médica."
     )
 
+    st.markdown("---")
+    st.caption("Vitalis AI Assistant · v1.0.0")
+
     if st.button("Nueva conversación", use_container_width=True):
-        st.session_state.messages = []
+        st.session_state.messages = [
+            {
+                "role": "assistant",
+                "content": (
+                    "Hola. Soy el asistente virtual de Clínica Vitalis Salud. "
+                    "Puedo ayudarte con tarifas, horarios, requisitos "
+                    "y políticas."
+                ),
+            }
+        ]
+        st.session_state.ultima_intencion = None
         st.rerun()
 
 
 try:
     agente = cargar_agente()
+
 except Exception as error:
     st.error("No fue posible inicializar el asistente.")
     st.exception(error)
@@ -97,10 +105,15 @@ if "messages" not in st.session_state:
             "role": "assistant",
             "content": (
                 "Hola. Soy el asistente virtual de Clínica Vitalis Salud. "
-                "Puedo ayudarte con tarifas, horarios, requisitos y políticas."
+                "Puedo ayudarte con tarifas, horarios, requisitos "
+                "y políticas."
             ),
         }
     ]
+
+
+if "ultima_intencion" not in st.session_state:
+    st.session_state.ultima_intencion = None
 
 
 for mensaje in st.session_state.messages:
@@ -127,18 +140,21 @@ if pregunta:
     with st.chat_message("assistant"):
         with st.spinner("Consultando información..."):
             try:
-                respuesta = agente.responder(pregunta)
-
-            except Exception as error:
-                respuesta = (
-                    "No fue posible procesar la consulta. "
-                    "Intenta nuevamente o comunícate con la clínica "
-                    "al 722 555 0101."
+                respuesta, nueva_intencion = agente.responder(
+                    mensaje=pregunta,
+                    ultima_intencion=st.session_state.ultima_intencion,
                 )
 
-                # El detalle aparece en pantalla para facilitar
-                # el diagnóstico durante la entrega académica.
-                st.error(f"Detalle técnico: {error}")
+                st.session_state.ultima_intencion = nueva_intencion
+
+            except ValueError as error:
+                respuesta = str(error)
+
+            except Exception:
+                respuesta = (
+                    "No fue posible procesar la consulta. "
+                    "Comunícate con la clínica al 722 555 0101."
+                )
 
         st.markdown(respuesta)
 
