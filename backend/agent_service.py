@@ -132,42 +132,93 @@ class VitalisAgentService:
         return pd.read_csv(ruta)
 
     def consultar_tarifa(self, concepto: str) -> str:
+        """
+        Consulta precios en el CSV usando normalización, alias y puntuación
+        por palabras coincidentes.
+        """
         consulta = normalizar_texto(concepto)
+
+        # Formas habituales usadas por los pacientes.
+        alias_tarifas = {
+            "consulta medica general": "consulta medicina general",
+            "consulta medica": "consulta medicina general",
+            "consulta general": "consulta medicina general",
+            "medicina general": "consulta medicina general",
+            "medico general": "consulta medicina general",
+        }
+
+        # Detectar alias dentro de una pregunta más larga.
+        for alias, concepto_csv in alias_tarifas.items():
+            if alias in consulta:
+                consulta = concepto_csv
+                break
+
+        # Palabras administrativas que no ayudan a identificar el concepto.
+        palabras_ignorar = {
+            "hola",
+            "cuanto",
+            "cuesta",
+            "cual",
+            "precio",
+            "costo",
+            "tarifa",
+            "valor",
+            "quisiera",
+            "saber",
+            "por",
+            "favor",
+            "de",
+            "del",
+            "la",
+            "el",
+            "una",
+            "un",
+            "es",
+        }
+
         palabras = [
             palabra
             for palabra in consulta.split()
-            if len(palabra) > 2
+            if len(palabra) > 2 and palabra not in palabras_ignorar
         ]
 
         if not palabras:
-            return "No se recibió un concepto válido para consultar."
+            return (
+                "No pude identificar la consulta o estudio. "
+                "Indica, por ejemplo: consulta general, cardiología "
+                "o ultrasonido pélvico."
+            )
 
         tabla = self.df_tarifas.copy()
         tabla["_normalizado"] = tabla["concepto"].map(normalizar_texto)
 
-        # Puntúa cada registro según la cantidad de palabras coincidentes.
         tabla["_puntaje"] = tabla["_normalizado"].apply(
-            lambda texto: sum(palabra in texto for palabra in palabras)
+            lambda texto: sum(
+                palabra in texto
+                for palabra in palabras
+            )
         )
 
         maximo = int(tabla["_puntaje"].max())
 
         if maximo == 0:
             return (
-                f"No encontré ninguna tarifa que coincida con '{concepto}'."
+                f"No encontré ninguna tarifa que coincida con '{concepto}'. "
+                "Puedes comunicarte con la clínica al 722 555 0101."
             )
 
         resultado = tabla[tabla["_puntaje"] == maximo]
 
         filas = [
             (
-                f"- {fila.concepto}: "
-                f"${fila.precio_mxn} MXN ({fila.categoria})"
+                f"**{fila.concepto}**\n\n"
+                f"Precio: **${fila.precio_mxn} MXN**\n\n"
+                f"Categoría: {fila.categoria}"
             )
             for fila in resultado.itertuples()
         ]
 
-        return "\n".join(filas)
+        return "\n\n".join(filas)
 
     def consultar_turnos(self, especialidad: str) -> str:
         consulta = normalizar_texto(especialidad)
@@ -255,6 +306,27 @@ class VitalisAgentService:
 
         if not pregunta:
             raise ValueError("El mensaje no puede estar vacío.")
+        
+        pregunta_normalizada = normalizar_texto(pregunta)
+        
+        terminos_tarifa = {
+            "precio",
+            "costo",
+            "cuesta",
+            "costar",
+            "tarifa",
+            "valor",
+            "cuánto",
+            "cuanto",
+        }
+        
+        es_pregunta_tatifa = any(
+            termino in pregunta_normalizada.split()
+            for termino in terminos_tarifa
+        )
+        
+        if es_pregunta_tatifa:
+            return self.consultar_tarifa(pregunta)
 
         resultado = self.agent.invoke(
             {
