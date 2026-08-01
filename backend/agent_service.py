@@ -163,6 +163,16 @@ class VitalisAgentService:
         "sedes",
         "dias",
     }
+    
+    TERMINOS_SERVICIOS = {
+    "servicio",
+    "servicios",
+    "especialidad",
+    "especialidades",
+    "ofrecen",
+    "manejan",
+    "disponibles",
+}
 
     PALABRAS_IGNORAR = {
         "hola",
@@ -178,6 +188,10 @@ class VitalisAgentService:
         "costos",
         "tarifa",
         "tarifas",
+        "horario",
+        "horarios",
+        "turno",
+        "turnos",
         "valor",
         "quisiera",
         "quiero",
@@ -288,6 +302,51 @@ class VitalisAgentService:
     ) -> bool:
         palabras = set(normalizar_texto(texto).split())
         return bool(palabras.intersection(terminos))
+    
+    def listar_servicios(self) -> str:
+        """Lista las especialidades disponibles sin consultar Gemini."""
+        servicios = sorted(
+            self.df_turnos["especialidad"]
+            .dropna()
+            .astype(str)
+            .drop_duplicates()
+            .tolist()
+        )
+
+        if not servicios:
+            return (
+                "No encontré especialidades registradas. "
+                "Comunícate con la clínica al 722 555 0101."
+            )
+
+        lista = "\n".join(
+            f"- **{servicio}**"
+            for servicio in servicios
+        )
+
+        return (
+            "Estas son las especialidades disponibles:\n\n"
+            f"{lista}\n\n"
+            "Indícame cuál deseas consultar para revisar su tarifa "
+            "u horario de atención."
+        )
+    
+    def _es_respuesta_contextual(
+        self,
+        pregunta: str,
+        ultima_intencion: Optional[str],
+    ) -> bool:
+        """
+        Comprueba si el mensaje corresponde realmente
+        a la intención anterior.
+        """
+        if ultima_intencion == "tarifa":
+            return self._parece_concepto_tarifa(pregunta)
+
+        if ultima_intencion == "turno":
+            return self._parece_especialidad(pregunta)
+
+        return False
 
     def _aplicar_alias_tarifa(self, consulta: str) -> str:
         alias = {
@@ -335,18 +394,36 @@ class VitalisAgentService:
                 return especialidad
 
         return consulta_normalizada
+         
+    def listar_tarifas(self) -> str:
+        """Lista todas las tarifas registradas sin consultar Gemini."""
+        if self.df_tarifas.empty:
+            return (
+                "No encontré tarifas registradas. "
+                "Comunícate con la clínica al 722 555 0101."
+            )
 
+        filas = [
+            (
+                f"- **{fila.concepto}**  \n"
+                f"Precio: **${fila.precio_mxn:,.0f} MXN**  \n"
+                f"Categoría: {fila.categoria}"
+            )
+            for fila in self.df_tarifas.itertuples()
+        ]
+
+        return (
+            "Estas son las tarifas disponibles:\n\n"
+            + "\n\n".join(filas)
+        )
+        
     def consultar_tarifa(self, concepto: str) -> str:
         """Consulta precios exactos en el CSV sin llamar a Gemini."""
         consulta = self._aplicar_alias_tarifa(concepto)
         palabras = self._obtener_palabras_utiles(consulta)
-
+                
         if not palabras:
-            return (
-                "Indícame qué consulta o estudio deseas cotizar. "
-                "Por ejemplo: medicina general, cardiología, "
-                "ultrasonido pélvico o laboratorio básico."
-            )
+            return self.listar_tarifas()
 
         tabla = self.df_tarifas.copy()
 
@@ -391,9 +468,18 @@ class VitalisAgentService:
         palabras = self._obtener_palabras_utiles(consulta)
 
         if not palabras:
+            filas = [
+            (
+                f"- **{fila.especialidad}** "
+                f"({fila.sede})\n"
+                f"{fila.dias_atencion} | {fila.horario}"
+            )
+            for fila in self.df_turnos.itertuples()
+        ]
+
             return (
-                "Indícame la especialidad médica que deseas consultar. "
-                "Por ejemplo: medicina general, cardiología o pediatría."
+                "Estos son nuestros horarios disponibles:\n\n"
+                + "\n\n".join(filas)
             )
 
         tabla = self.df_turnos.copy()
@@ -533,6 +619,23 @@ class VitalisAgentService:
             pregunta,
             self.TERMINOS_TURNO,
         )
+        
+        es_consulta_servicios = (
+            self._contiene_termino(
+                pregunta,
+                self.TERMINOS_SERVICIOS,
+            )
+            or pregunta_normalizada in {
+                "cuales hay",
+                "que hay",
+                "que ofrecen",
+                "que manejan",
+            }
+        )
+        
+        # Pregunta general sobre servicios o especialidades.
+        if es_consulta_servicios:
+            return self.listar_servicios(), None
 
         # El usuario cambia explícitamente a tarifas.
         if es_tarifa_explicita:
@@ -544,15 +647,17 @@ class VitalisAgentService:
             respuesta = self.consultar_turnos(pregunta)
             return respuesta, "turno"
 
-        # Respuesta corta dentro de una conversación sobre tarifas.
-        if ultima_intencion == "tarifa":
-            respuesta = self.consultar_tarifa(pregunta)
-            return respuesta, "tarifa"
+        # Solo conserva el contexto cuando el mensaje coincide
+        # con una entidad válida para la intención anterior.
+        if self._es_respuesta_contextual(
+            pregunta,
+            ultima_intencion,
+        ):
+            if ultima_intencion == "tarifa":
+                return self.consultar_tarifa(pregunta), "tarifa"
 
-        # Respuesta corta dentro de una conversación sobre horarios.
-        if ultima_intencion == "turno":
-            respuesta = self.consultar_turnos(pregunta)
-            return respuesta, "turno"
+            if ultima_intencion == "turno":
+                return self.consultar_turnos(pregunta), "turno"
 
         # Concepto reconocido, pero sin saber si desea precio u horario.
         parece_tarifa = self._parece_concepto_tarifa(pregunta)
